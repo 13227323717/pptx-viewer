@@ -19,6 +19,10 @@ import type { PptxNativeAnimation } from 'pptx-viewer-core';
 import { buildColorAnimationKeyframes } from './animation-color';
 import { resolveFilterEffect } from './animation-filter-effects';
 import {
+	buildChainedMotionKeyframes,
+	isChainedMotionAnimation,
+} from './animation-motion-path-chain';
+import {
 	emphasisFilterKeyframeCss,
 	FLY_SUBTYPE_TO_EDGE,
 	PRESET_ID_TO_EFFECT,
@@ -191,6 +195,17 @@ export function buildDynamicKeyframes(
 	uid: number,
 	renderContext?: AnimationRenderContext,
 ): { keyframeName: string; css: string } | undefined {
+	const chained = isChainedMotionAnimation(anim)
+		? buildChainedMotionKeyframes(
+				anim,
+				uid,
+				FLAT_TRANSFORM_PREFIXES,
+				boxForAnimation(anim, renderContext),
+			)
+		: undefined;
+	if (chained) {
+		return chained;
+	}
 	const transform = buildTransformKeyframes(
 		anim,
 		uid,
@@ -237,6 +252,17 @@ export function buildDynamicKeyframe(
 	uid: number,
 	renderContext?: AnimationRenderContext,
 ): { keyframeName: string; css: string } | undefined {
+	const chained = isChainedMotionAnimation(anim)
+		? buildChainedMotionKeyframes(
+				anim,
+				uid,
+				TIMELINE_TRANSFORM_PREFIXES,
+				boxForAnimation(anim, renderContext),
+			)
+		: undefined;
+	if (chained) {
+		return chained;
+	}
 	const transform = buildTransformKeyframes(
 		anim,
 		uid,

@@ -170,9 +170,28 @@ export function applyAnimationGroupSteps(group: TimelineClickGroup, ctx: Playbac
 			continue;
 		}
 		if (step.stopSound) {
-			ctx.stopSound();
+			// A chained-motion segment's stop cue fires at its authored start
+			// (see `animation-motion-path-chain`), so delay it like commands.
+			if (step.delayMs > 0) {
+				const stopTimer = window.setTimeout(() => {
+					ctx.stopSound();
+				}, step.delayMs);
+				ctx.timers.push(stopTimer);
+			} else {
+				ctx.stopSound();
+			}
 		} else if (step.soundPath) {
-			(ctx.onPlayActionSound ?? ctx.playSound)(step.soundPath);
+			// Same: an animation sound belongs at its own effect's start, not
+			// at the group's. delayMs 0 keeps the historical immediate fire.
+			const soundPath = step.soundPath;
+			if (step.delayMs > 0) {
+				const soundTimer = window.setTimeout(() => {
+					(ctx.onPlayActionSound ?? ctx.playSound)(soundPath);
+				}, step.delayMs);
+				ctx.timers.push(soundTimer);
+			} else {
+				(ctx.onPlayActionSound ?? ctx.playSound)(soundPath);
+			}
 		}
 	}
 

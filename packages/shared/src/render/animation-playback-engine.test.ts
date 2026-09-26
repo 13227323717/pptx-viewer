@@ -133,6 +133,21 @@ describe('applyAnimationGroupSteps', () => {
 		expect(ctx.playSound).toHaveBeenCalledWith('media/click.wav');
 	});
 
+	it('delays a delayed step sound by its delayMs and keeps delay-0 immediate', () => {
+		const { ctx } = makeContext();
+		applyAnimationGroupSteps(
+			group([
+				step({ elementId: 'a', soundPath: 'media/late.wav', delayMs: 8000 }),
+				step({ elementId: 'b', soundPath: 'media/now.wav' }),
+			]),
+			ctx,
+		);
+		expect(ctx.playSound).toHaveBeenCalledWith('media/now.wav');
+		expect(ctx.playSound).not.toHaveBeenCalledWith('media/late.wav');
+		vi.advanceTimersByTime(8000);
+		expect(ctx.playSound).toHaveBeenCalledWith('media/late.wav');
+	});
+
 	it('calls ctx.stopSound for a stopSound step', () => {
 		const { ctx } = makeContext();
 		applyAnimationGroupSteps(group([step({ elementId: 'a', stopSound: true })]), ctx);
