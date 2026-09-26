@@ -231,6 +231,19 @@ export function applyAnimationGroupSteps(group: TimelineClickGroup, ctx: Playbac
 				ctx.setStates((previous) => {
 					const next = new Map(previous);
 					const current = next.get(step.elementId);
+					// A LATER-applied step may own this element's animation now: a
+					// chained-motion journey (see `animation-motion-path-chain`)
+					// attaches one long animation whose delay spans past this
+					// step's whole window, and any followed-up effect behaves the
+					// same. This step's end-cleanup must not clear a newer
+					// animation that is still pending or running — wiping it
+					// during the newer animation's own delay phase killed
+					// delayed journeys right after their entrance fired.
+					const superseded =
+						current?.cssAnimation !== undefined && current.cssAnimation !== step.cssAnimation;
+					if (superseded) {
+						return next;
+					}
 					// `afterAnimation: "hideAfterAnimation"` hides the element once its
 					// (entrance/emphasis) effect ends, overriding normal visibility.
 					const visibleAfter =

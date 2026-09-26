@@ -133,6 +133,42 @@ describe('applyAnimationGroupSteps', () => {
 		expect(ctx.playSound).toHaveBeenCalledWith('media/click.wav');
 	});
 
+	it('keeps a newer step delayed animation when an earlier step cleanup fires', () => {
+		// A chained-motion journey attaches ONE long animation in the delay
+		// phase; the entrance that fired before it must not wipe it when its
+		// own (much earlier) cleanup timer runs.
+		const { ctx, latest } = makeContext();
+		applyAnimationGroupSteps(
+			group([
+				step({
+					elementId: 'a',
+					presetClass: 'entr',
+					cssKeyframes: 'pptx-appear',
+					cssAnimation: 'pptx-appear 0ms linear 0ms 1 both',
+					delayMs: 0,
+					durationMs: 0,
+				}),
+				step({
+					elementId: 'a',
+					presetClass: 'path',
+					cssKeyframes: 'pptx-tl-transform-1',
+					cssAnimation: 'pptx-tl-transform-1 6000ms linear 2000ms 1 both',
+					delayMs: 2000,
+					durationMs: 6000,
+					holdEndState: true,
+				}),
+			]),
+			ctx,
+		);
+		const chain = 'pptx-tl-transform-1 6000ms linear 2000ms 1 both';
+		// past the entrance cleanup (0 + 0 + 8ms): the chain must survive.
+		vi.advanceTimersByTime(100);
+		expect(latest().get('a')?.cssAnimation).toBe(chain);
+		// past the chain's own cleanup (2000 + 6000 + 8): hold keeps it attached.
+		vi.advanceTimersByTime(9000);
+		expect(latest().get('a')?.cssAnimation).toBe(chain);
+	});
+
 	it('delays a delayed step sound by its delayMs and keeps delay-0 immediate', () => {
 		const { ctx } = makeContext();
 		applyAnimationGroupSteps(
