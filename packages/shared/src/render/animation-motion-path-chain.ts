@@ -61,6 +61,13 @@ export interface ChainedMotionAnimation extends PptxNativeAnimation {
 	motionChain?: ChainedMotionSegment[];
 	/** True for the members a merge consumed into a chain head. */
 	motionChainSwallowed?: boolean;
+	/**
+	 * True when the same sequence holds an authored EXIT for this element at
+	 * (or before) the chain start: the element is hidden by that exit and must
+	 * stay hidden (via the chain keyframes' leading `opacity: 0`) until the
+	 * journey's own start, then pop in exactly as the first segment begins.
+	 */
+	motionChainHideUntilStart?: boolean;
 }
 
 export function isChainedMotionAnimation(
@@ -197,12 +204,24 @@ export function mergeChainedMotionPathAnims(
 		}
 
 		const head = ordered[0];
+		const windowStartMsAbs = windowStartMs;
+		// An authored EXIT on this element at/before the chain start (the deck's
+		// way of parking a rope above the slide invisibly) means the element
+		// must stay hidden until the journey's own first segment begins.
+		const hasPreChainExit = anims.some(
+			(other) =>
+				other !== head.anim &&
+				other.presetClass === 'exit' &&
+				resolveAnimationTargetId(other) === resolveAnimationTargetId(head.anim) &&
+				(other.parGroupDelayMs ?? other.delayMs ?? 0) <= windowStartMsAbs,
+		);
 		const synthetic: ChainedMotionAnimation = {
 			...head.anim,
 			motionPath: pointsToPathString(points),
 			// The window includes any authored gaps between segments.
 			durationMs: Math.max(1, windowEndMs - windowStartMs),
 			motionChain: segments,
+			motionChainHideUntilStart: hasPreChainExit,
 		};
 		replacements.set(head.index, synthetic);
 		for (const member of ordered.slice(1)) {
@@ -279,9 +298,23 @@ export function buildChainedMotionKeyframes(
 		}
 	}
 
-	const lines = keyframes.map((keyframe) => {
+	// An authored exit parked this element out of sight before the journey:
+	// the 0% frame keeps it invisible through the delay phase (fill:both
+	// applies the 0% frame during animation-delay), and the next keyframe pops
+	// it back exactly as the first segment begins.
+	const hideUntilStart = (anim as ChainedMotionAnimation).motionChainHideUntilStart === true;
+	if (hideUntilStart && keyframes.length > 0) {
+		keyframes.splice(1, 0, { ...keyframes[0], progress: 0.01 });
+	}
+	const lines = keyframes.map((keyframe, index) => {
 		const easing = keyframe.easing ? `animation-timing-function: ${keyframe.easing}; ` : '';
-		return `\t${formatNumber(keyframe.progress, 2)}% { ${easing}${keyframe.transform}; }`;
+		const opacity =
+			hideUntilStart && index === 0
+				? 'opacity: 0; '
+				: hideUntilStart && index === 1
+					? 'opacity: 1; '
+					: '';
+		return `\t${formatNumber(keyframe.progress, 2)}% { ${easing}${opacity}${keyframe.transform}; }`;
 	});
 
 	const name = `${prefixes.transform}-${uid}`;

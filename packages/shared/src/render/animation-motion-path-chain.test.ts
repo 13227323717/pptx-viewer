@@ -117,6 +117,31 @@ describe('mergeChainedMotionPathAnims', () => {
 		expect(merged[1].soundPath).toBe('media/drop.wav');
 	});
 
+	it('emits a leading opacity ramp when the run has a pre-chain exit', () => {
+		// The deck parks the rope above the slide and hides it with an exit at
+		// 0s; the merged journey must stay invisible through its own delay
+		// phase (the 0% keyframe) and pop in as the descend begins.
+		const merged = mergeChainedMotionPathAnims([
+			pathAnim({ presetClass: 'exit', motionPath: 'M 0 0 L 0 0 ', delayMs: 0, durationMs: 0 }),
+			pathAnim({ parGroupDelayMs: 2000, durationMs: 2000, motionPath: 'M 0 0 L 0.5 0 ' }),
+			pathAnim({
+				parGroupIndex: 1,
+				parGroupDelayMs: 4000,
+				durationMs: 2000,
+				motionPath: 'M 0.5 0 L 0.5 0.5 ',
+			}),
+		]) as Array<{ motionChainHideUntilStart?: boolean }>;
+		// merged[0] is the authored exit (kept as-is); merged[1] is the chain.
+		expect((merged[0] as { motionChain?: unknown[] }).motionChain).toBeUndefined();
+		const head = merged[1] as Parameters<typeof buildChainedMotionKeyframes>[0];
+		expect(head.motionChainHideUntilStart).toBeTruthy();
+		const result = buildChainedMotionKeyframes(head, 9, PREFIXES);
+		expect(result).toBeDefined();
+		// 0% hides (through the delay phase), the next keyframe pops in.
+		expect(result?.css).toMatch(/0% \{[^}]*opacity: 0;/);
+		expect(result?.css).toMatch(/0\.01% \{[^}]*opacity: 1;/);
+	});
+
 	it('leaves single path animations untouched', () => {
 		const merged = mergeChainedMotionPathAnims([pathAnim()]);
 		expect(merged).toHaveLength(1);
