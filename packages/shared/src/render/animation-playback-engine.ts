@@ -39,6 +39,7 @@
 import { wireMediaBookmarkSteps } from './animation-media-bookmark-gating';
 import { wireMediaEndedSteps } from './animation-media-end-gating';
 import { executeMediaCommandInDom } from './animation-media-playback';
+import { keyframeAnimatedProperties } from './animation-parallel-composition';
 import { mergeTextStyleOnStart, resolveTextStyleOnCleanup } from './animation-text-style-state';
 import type { ElementAnimationState, TimelineClickGroup } from './animation-timeline-types';
 import { PresentationAnimationController } from './presentation-animation-controller';
@@ -201,6 +202,32 @@ export function applyAnimationGroupSteps(group: TimelineClickGroup, ctx: Playbac
 	// cascade in for the duration of the step.
 	ctx.setStates((previous) => {
 		const next = new Map(previous);
+		// One click group routinely holds SEVERAL steps for the same element (a
+		// crane claw that "slides right 0-2s, then fades out 2-2.5s" is one
+		// authored sequence), each with its own delay. The element state holds
+		// ONE CSS animation list, so those steps must ACCUMULATE into a
+		// comma-joined list — the historical last-write-wins handed the element
+		// only the LAST step and the claw never slid at all.
+		//
+		// The accumulation is per CSS PROPERTY, as a list of components: a new
+		// step REPLACES only the earlier components whose properties it takes
+		// over (an exit's `opacity` supersedes the entrance's fade but must not
+		// touch the motion's `transform`), and appends otherwise. Two
+		// animations touching one property resolve in list order, and a later
+		// one's `fill: both` from-frame would pin the property through the
+		// earlier one's whole active window — the freeze the chained-journey
+		// merge exists to prevent — so takeover, not coexistence, is the rule.
+		//
+		// Components start EMPTY per pass: an animation left over from a
+		// previous group or run (a held journey, a completed exit) is replaced
+		// by the new pass's first step, never joined onto — replaying a
+		// sequence must not glue its new motion to the old exit's held
+		// `opacity: 0` and slide the element around invisible.
+		interface AnimationComponent {
+			animation: string;
+			properties: Set<string>;
+		}
+		const componentsByElement = new Map<string, AnimationComponent[]>();
 		for (const step of group.steps) {
 			if (step.command) {
 				continue;
@@ -208,10 +235,32 @@ export function applyAnimationGroupSteps(group: TimelineClickGroup, ctx: Playbac
 			const current = next.get(step.elementId);
 			const shouldBeVisible = step.presetClass === 'exit' ? (current?.visible ?? true) : true;
 			const carried = carryBuildState(current);
+			let components = componentsByElement.get(step.elementId);
+			if (!components) {
+				components = [];
+				componentsByElement.set(step.elementId, components);
+			}
+			if (step.cssAnimation) {
+				const stepProperties = keyframeAnimatedProperties(step.keyframeName);
+				// An unrecognised keyframe name claims every property (conservative
+				// takeover); a recognised one that animates nothing (a no-op
+				// preset) simply coexists.
+				const takesOverEverything = stepProperties.has('unknown');
+				for (let index = components.length - 1; index >= 0; index--) {
+					const component = components[index];
+					const collides =
+						takesOverEverything ||
+						[...stepProperties].some((property) => component.properties.has(property));
+					if (collides) {
+						components.splice(index, 1);
+					}
+				}
+				components.push({ animation: step.cssAnimation, properties: stepProperties });
+			}
 			next.set(step.elementId, {
 				...carried,
 				visible: shouldBeVisible,
-				cssAnimation: step.cssAnimation,
+				cssAnimation: components.map((component) => component.animation).join(', '),
 				animatesFill: step.colorTargets?.includes('fill') ? true : undefined,
 				animatesStroke: step.colorTargets?.includes('stroke') ? true : undefined,
 				textStyle: mergeTextStyleOnStart(carried.textStyle, step.textStyle),

@@ -419,6 +419,120 @@ describe('playGroup', () => {
 		expect(latest().get('dgm')?.build?.progress).toBe(1);
 		vi.useRealTimers();
 	});
+
+	// One click group routinely holds SEVERAL steps for the same element, each
+	// with its own delay (a crane claw that "slides right 0-2s, then disappears
+	// 2-2.5s" is one authored sequence). The per-element state holds ONE CSS
+	// animation list, so those steps must accumulate into a comma join — the
+	// historical overwrite handed the element only the LAST step and the claw
+	// never slid at all.
+	it('joins same-element steps with disjoint properties into one animation list', () => {
+		const { ctx, latest } = makeContext();
+		applyAnimationGroupSteps(
+			group([
+				step({
+					elementId: 'claw',
+					keyframeName: 'pptx-tl-transform-7',
+					cssAnimation: 'pptx-tl-transform-7 2000ms linear 0ms 1 both',
+					presetClass: 'path',
+				}),
+				step({
+					elementId: 'claw',
+					keyframeName: 'pptx-disappear',
+					cssAnimation: 'pptx-disappear 500ms ease 2000ms 1 forwards',
+					presetClass: 'exit',
+					delayMs: 2000,
+				}),
+			]),
+			ctx,
+		);
+		expect(latest().get('claw')?.cssAnimation).toBe(
+			'pptx-tl-transform-7 2000ms linear 0ms 1 both, pptx-disappear 500ms ease 2000ms 1 forwards',
+		);
+	});
+
+	it('keeps last-write-wins for same-element steps that animate the same property', () => {
+		const { ctx, latest } = makeContext();
+		applyAnimationGroupSteps(
+			group([
+				step({
+					elementId: 'a',
+					keyframeName: 'pptx-tl-transform-1',
+					cssAnimation: 'pptx-tl-transform-1 1000ms linear 0ms 1 both',
+					presetClass: 'path',
+				}),
+				step({
+					elementId: 'a',
+					keyframeName: 'pptx-tl-transform-2',
+					cssAnimation: 'pptx-tl-transform-2 1000ms linear 1000ms 1 both',
+					presetClass: 'path',
+					delayMs: 1000,
+				}),
+			]),
+			ctx,
+		);
+		// Two transform animations on one element resolve in list order, and the
+		// later one's `fill: both` from-frame would pin the transform through the
+		// earlier one's active window — so the earlier one is dropped instead.
+		expect(latest().get('a')?.cssAnimation).toBe('pptx-tl-transform-2 1000ms linear 1000ms 1 both');
+	});
+
+	it('lets a later exit take over opacity without dropping the motion', () => {
+		// The crane-claw choreography: appear 0-0.5s, slide right 0-2s, fade out
+		// 2-2.5s — three steps on one element in one group. The exit's `opacity`
+		// supersedes the entrance's fade (component takeover) but must not touch
+		// the motion's `transform`: the historical overwrite kept only the exit
+		// and the claw never slid.
+		const { ctx, latest } = makeContext();
+		applyAnimationGroupSteps(
+			group([
+				step({ elementId: 'claw' }),
+				step({
+					elementId: 'claw',
+					keyframeName: 'pptx-tl-motion-45',
+					cssAnimation: 'pptx-tl-motion-45 2000ms linear 0ms 1 both',
+					presetClass: 'path',
+				}),
+				step({
+					elementId: 'claw',
+					keyframeName: 'pptx-disappear',
+					cssAnimation: 'pptx-disappear 500ms ease 2000ms 1 forwards',
+					presetClass: 'exit',
+					delayMs: 2000,
+				}),
+			]),
+			ctx,
+		);
+		expect(latest().get('claw')?.cssAnimation).toBe(
+			'pptx-tl-motion-45 2000ms linear 0ms 1 both, pptx-disappear 500ms ease 2000ms 1 forwards',
+		);
+	});
+
+	it('replaces a stale animation from a previous group or run instead of joining it', () => {
+		const { ctx, latest } = makeContext();
+		// The previous run of this interactive sequence ended with the element
+		// faded out (a held exit). Replaying must hand the element its NEW
+		// animation alone — joining would glue the new motion to the old exit's
+		// held `opacity: 0` and slide the element around invisible.
+		ctx.setStates((prev) =>
+			new Map(prev).set('claw', {
+				visible: false,
+				cssAnimation: 'pptx-disappear 500ms ease 0ms 1 forwards',
+			}),
+		);
+		applyAnimationGroupSteps(
+			group([
+				step({
+					elementId: 'claw',
+					keyframeName: 'pptx-tl-transform-7',
+					cssAnimation: 'pptx-tl-transform-7 2000ms linear 0ms 1 both',
+					presetClass: 'path',
+				}),
+			]),
+			ctx,
+		);
+		expect(latest().get('claw')?.cssAnimation).toBe('pptx-tl-transform-7 2000ms linear 0ms 1 both');
+	});
 });
 
 describe('scheduleAutoAdvanceChain', () => {
