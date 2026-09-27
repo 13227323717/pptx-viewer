@@ -48,9 +48,23 @@ export function resolveP14MediaForPicture(
 
 	let mediaPath = primaryMediaPath;
 	let mediaMimeType = primaryMediaMimeType;
-	if (mediaExt?.embedRId && (!mediaPath || mediaPath.length === 0)) {
-		mediaPath = resolveEmbedRelationship(mediaExt.embedRId);
-		mediaMimeType = getMediaMimeType(mediaPath);
+	// `p14:media r:embed` is the AUTHORITATIVE modern reference: PowerPoint
+	// 2010+ and WPS both play the EMBEDDED copy it points at, preferring it
+	// over the legacy `a:videoFile`/`a:audioFile` link — whose
+	// `TargetMode="External"` target is routinely STALE (a deck moved between
+	// machines keeps `Target="NULL"` legacy links whose p14 embedded copy
+	// still plays). So the p14 embed WINS whenever it resolves to a package
+	// part; only a genuinely external primary (Online Video) or a failed p14
+	// lookup keeps the primary.
+	if (mediaExt?.embedRId) {
+		const embeddedPath = resolveEmbedRelationship(mediaExt.embedRId);
+		const primaryIsExternalUrl =
+			primaryMediaPath !== undefined &&
+			(primaryMediaPath.startsWith('http://') || primaryMediaPath.startsWith('https://'));
+		if (embeddedPath && !primaryIsExternalUrl) {
+			mediaPath = embeddedPath;
+			mediaMimeType = getMediaMimeType(mediaPath);
+		}
 	}
 
 	return {

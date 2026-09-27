@@ -146,6 +146,14 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 				);
 				mediaPath = p14Media.mediaPath;
 				mediaMimeType = p14Media.mediaMimeType;
+				// The p14 embed override above re-homes the source on an embedded
+				// package part: a `linked` flag inherited from the legacy External
+				// reference is then stale (the final source is embedded), so only a
+				// genuine external URL keeps it.
+				const mediaIsLinked =
+					mediaReference.isLinked === true &&
+					mediaPath !== undefined &&
+					(mediaPath.startsWith('http://') || mediaPath.startsWith('https://'));
 
 				// Extract the poster frame from the picture's blipFill
 				let posterFramePath: string | undefined;
@@ -205,7 +213,7 @@ export class PptxHandlerRuntime extends PptxHandlerRuntimeBase {
 					audioCdStart: mediaReference.audioCdStart,
 					audioCdEnd: mediaReference.audioCdEnd,
 					rawMediaReferenceXml: mediaReference.rawXml,
-					isLinked: mediaReference.isLinked,
+					isLinked: mediaIsLinked,
 					trimStartMs: p14Media.trimStartMs,
 					trimEndMs: p14Media.trimEndMs,
 					fadeInDuration: p14Media.fadeInDuration,
